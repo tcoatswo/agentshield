@@ -6,7 +6,7 @@ import sys
 import os
 import json
 import argparse
-from .scanner import scan_prompt
+from .scanner import MAX_INPUT_CHARS, scan_prompt
 from .sanitizer import sanitize_text
 
 
@@ -63,11 +63,12 @@ def run_benchmark_tests():
         if scan_res.obfuscation_findings:
             print(f"    Obfuscation: {scan_res.obfuscation_findings[0]}")
         if scan_res.matches:
-            print(f"    Matched: {scan_res.matches[0]['snippet']}")
+            print(f"    Matched: {json.dumps(scan_res.matches[0]['snippet'])}")
 
     print("\n" + "-" * 70)
     print(f"Benchmark Results: {passed}/{len(test_cases)} Tests Passed ({int(passed/len(test_cases)*100)}%)")
     print("=" * 70 + "\n")
+    return passed == len(test_cases)
 
 
 def main():
@@ -79,20 +80,26 @@ def main():
     args = parser.parse_args()
 
     if args.action == "test":
-        run_benchmark_tests()
+        if not run_benchmark_tests():
+            sys.exit(1)
         return
 
-    content = args.target
-    if os.path.exists(args.target) and os.path.isfile(args.target):
-        with open(args.target, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+    try:
+        content = args.target
+        if os.path.exists(args.target) and os.path.isfile(args.target):
+            with open(args.target, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read(MAX_INPUT_CHARS + 1)
 
-    if not content:
-        if not sys.stdin.isatty():
-            content = sys.stdin.read()
-        else:
-            print("[!] Error: No target text or file provided.")
-            sys.exit(1)
+        if not content:
+            if not sys.stdin.isatty():
+                content = sys.stdin.read(MAX_INPUT_CHARS + 1)
+            else:
+                raise ValueError("No target text or file provided")
+        if len(content) > MAX_INPUT_CHARS:
+            raise ValueError(f"input exceeds {MAX_INPUT_CHARS} characters")
+    except (OSError, ValueError) as exc:
+        print(f"[!] Error: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     if args.action == "scan":
         result = scan_prompt(content)
@@ -112,7 +119,7 @@ def main():
             if result.matches:
                 print("\n[!] Matched Threat Vectors:")
                 for idx, m in enumerate(result.matches, 1):
-                    print(f"  {idx}. [{m['category'].upper()}] -> {m['snippet']}")
+                    print(f"  {idx}. [{m['category'].upper()}] -> {json.dumps(m['snippet'])}")
             print("=" * 60)
 
     elif args.action in ["sanitize", "wrap"]:

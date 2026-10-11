@@ -3,7 +3,7 @@ Unit and benchmark tests for AgentShield scanner.
 """
 
 import unittest
-from agentshield.scanner import scan_prompt, normalize_and_deobfuscate
+from agentshield.scanner import MAX_INPUT_CHARS, MAX_REPORTED_MATCHES, scan_prompt, normalize_and_deobfuscate
 
 
 class TestScanner(unittest.TestCase):
@@ -40,6 +40,18 @@ class TestScanner(unittest.TestCase):
         res = scan_prompt(text)
         self.assertFalse(res.is_safe)
         self.assertGreaterEqual(res.risk_score, 50)
+
+    def test_suspicious_base64_alone_is_unsafe(self):
+        res = scan_prompt("c3lzdGVtIHJvbGUgaW5qZWN0aW9u")
+        self.assertFalse(res.is_safe)
+        self.assertTrue(any("Base64" in finding for finding in res.obfuscation_findings))
+
+    def test_input_and_report_are_bounded(self):
+        with self.assertRaises(ValueError):
+            scan_prompt("x" * (MAX_INPUT_CHARS + 1))
+        res = scan_prompt("<|im_end|>" * 200)
+        self.assertEqual(len(res.matches), MAX_REPORTED_MATCHES)
+        self.assertEqual(res.total_matches, 200)
 
 
 if __name__ == "__main__":
